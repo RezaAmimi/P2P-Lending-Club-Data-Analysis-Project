@@ -1,0 +1,462 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+install.packages("dplR")
+library(utils)
+library(methods)
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(Matrix)
+library(tidyverse)
+library(magrittr)
+library(tidyverse)
+library(lubridate)
+library(utils)
+library(methods)
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(Matrix)
+lcdf <- read_csv('lcData100K.csv')
+dim(lcdf)
+######################################PART 2A #################################################
+
+#2.3
+library(lubridate)
+
+lcdf$last_pymnt_d<-paste(lcdf$last_pymnt_d, "-01", sep = "")
+lcdf$last_pymnt_d<-parse_date_time(lcdf$last_pymnt_d,  "myd")
+x<- as.duration(lcdf$issue_d  %--% lcdf$last_pymnt_d)
+head(x)
+x<- as.duration(lcdf$issue_d  %--% lcdf$last_pymnt_d)/dyears(1)
+lcdf$actualTerm <- ifelse(lcdf$loan_status=="Fully Paid", as.duration(lcdf$issue_d  %--% lcdf$last_pymnt_d)/dyears(1), 3)
+
+
+#2.4
+#calculate the annualized percentage return
+lcdf$annRet <- ((lcdf$total_pymnt -lcdf$funded_amnt)/lcdf$funded_amnt)*(12/36)*100
+mean(lcdf$annRet)
+lcdf %>% group_by(grade) %>% summarise(nLoans=n(), defaults=sum(loan_status=="Charged Off"), avgInterest= mean(int_rate), stdInterest=sd(int_rate), avgLoanAMt=mean(loan_amnt), avgPmnt=mean(total_pymnt), avgRet=mean(annRet), stdRet=sd(annRet), minRet=min(annRet), maxRet=max(annRet))
+lcdf$actualReturn <- ifelse(lcdf$actualTerm>0, ((lcdf$total_pymnt -lcdf$funded_amnt)/lcdf$funded_amnt)*(1/lcdf$actualTerm)*100, 0)
+
+
+#2.7
+lcdf$propSatisBankcardAccts <- ifelse(lcdf$num_bc_tl>0, lcdf$num_bc_sats/lcdf$num_bc_tl, 0)
+table(lcdf$propSatisBankcardAccts, lcdf$grade)
+tablbankcard<-table(lcdf$propSatisBankcardAccts, lcdf$grade)
+prop.table(tablbankcard,1) #proportion per column, per row use 1 
+lcdf$emp_length <- factor(lcdf$emp_length, levels=c("n/a", "< 1 year","1 year","2 years", "3 years" ,  "4 years",   "5 years",   "6 years",   "7 years" ,  "8 years", "9 years", "10+ years" ))
+lcdf %>% group_by(emp_length) %>% summarise(nLoans=n(), defaults=sum(loan_status=="Charged Off"), defaultRate=defaults/nLoans, avgIntRate=mean(int_rate),  avgLoanAmt=mean(loan_amnt),  avgActRet = mean(actualReturn), avgActTerm=mean(actualTerm))
+lcdf$openAccRatio <- ifelse(lcdf$open_acc>0, lcdf$open_acc/lcdf$total_acc, 0)
+table(lcdf$openAccRatio, lcdf$grade)
+
+
+
+###############PART 3 (DROPING VARIABLES) ##########################################################
+
+##Drop some variables for potential leakage, others
+#Drop some other columns which are not useful and those which will cause 'leakage'
+lcdf <- lcdf %>% select(-c(funded_amnt_inv, term, emp_title, pymnt_plan, title, zip_code,
+                           addr_state, out_prncp, out_prncp_inv, total_pymnt_inv, 
+                           total_rec_prncp, total_rec_int, total_rec_late_fee,recoveries, 
+                           collection_recovery_fee, last_credit_pull_d, policy_code, 
+                           disbursement_method, debt_settlement_flag, hardship_flag, 
+                           hardship_dpd, settlement_term, application_type, annual_inc_joint,
+                           dti_joint, verification_status_joint, mths_since_rcnt_il))
+
+
+
+#### PART 2 C ########################################################################################
+
+lcdf <- lcdf %>% select_if(function(x){!all(is.na(x))}) #eliminate the variables that were all missing values
+
+#REPLACING AND DROPPING MISSING VALUES
+
+#values with 99.9% of missing values will be dropped
+
+#Replacing missing values
+
+#lcdf$loan_status <- ifelse(lcdf$loan_status == "Fully Paid", 1, 0)
+
+lcdf$mths_since_last_delinq <- ifelse(lcdf$mths_since_last_delinq  == 'NA', 0, 1)
+lcdf$mths_since_last_delinq[is.na(lcdf$mths_since_last_delinq)] = 0
+lcdf$mths_since_last_major_derog <- ifelse(lcdf$mths_since_last_major_derog  == 'NA', 0, 1)
+lcdf$mths_since_last_major_derog[is.na(lcdf$mths_since_last_major_derog)] = 0 #NA = 0 means doesnt have derogation
+lcdf$mths_since_last_record <- ifelse(lcdf$mths_since_last_record  == 'NA', 0, 1) #
+lcdf$mths_since_last_record[is.na(lcdf$mths_since_last_record)] = 0
+lcdf$mths_since_recent_bc_dlq <- ifelse(lcdf$mths_since_recent_bc_dlq  == 'NA', 0, 1) #
+lcdf$mths_since_recent_bc_dlq[is.na(lcdf$mths_since_recent_bc_dlq)] = 0
+lcdf$mths_since_recent_inq <- ifelse(lcdf$mths_since_recent_inq  == 'NA', 0, 1) #
+lcdf$mths_since_recent_inq[is.na(lcdf$mths_since_recent_inq)] = 0
+lcdf$mths_since_recent_revol_delinq <- ifelse(lcdf$mths_since_recent_revol_delinq  == 'NA', 0, 1) #
+lcdf$mths_since_recent_revol_delinq[is.na(lcdf$mths_since_recent_revol_delinq)] = 0
+
+
+lcdf$open_acc_6m[is.na(lcdf$open_acc_6m)] = 0
+lcdf$open_act_il[is.na(lcdf$open_act_il)] = 0
+lcdf$open_il_12m[is.na(lcdf$open_il_12m)] = 0
+lcdf$open_il_24m[is.na(lcdf$open_il_24m)] = 0
+lcdf$total_bal_il[is.na(lcdf$total_bal_il)] = 0
+lcdf$il_util[is.na(lcdf$il_util)] = 0
+lcdf$open_rv_12m[is.na(lcdf$open_rv_12m)] = 0
+lcdf$open_rv_24m[is.na(lcdf$open_rv_24m)] = 0
+lcdf$max_bal_bc[is.na(lcdf$max_bal_bc)] = 0
+lcdf$all_util[is.na(lcdf$all_util)] = 0
+lcdf$inq_fi[is.na(lcdf$inq_fi)] = 0
+lcdf$total_cu_tl[is.na(lcdf$total_cu_tl)] = 0
+lcdf$inq_last_12m[is.na(lcdf$inq_last_12m)] = 0
+lcdf$last_pymnt_d[is.na(lcdf$last_pymnt_d)] = '2018/05/01'
+
+
+lcdf$revol_util[is.na(lcdf$revol_util)] = 0
+
+#install.packages("modeest") 
+library(modeest)
+library(clue)
+library(ROCR)
+
+a<- mlv(lcdf$avg_cur_bal, method = "meanshift", na.rm=TRUE)
+b<-mean(lcdf$avg_cur_bal, na.rm=TRUE)
+lcdf$avg_cur_bal[is.na(lcdf$avg_cur_bal)] <- mean(lcdf$avg_cur_bal, na.rm = TRUE)
+a<- mlv(lcdf$bc_open_to_buy, method = "meanshift", na.rm=TRUE)
+b<-mean(lcdf$bc_open_to_buy, na.rm=TRUE)
+lcdf$bc_open_to_buy[is.na(lcdf$bc_open_to_buy)] <- mean(lcdf$bc_open_to_buy, na.rm = TRUE)
+b<-mean(lcdf$bc_util, na.rm=TRUE)
+lcdf$bc_util[is.na(lcdf$bc_util)] <- mean(lcdf$bc_util, na.rm = TRUE)
+max(lcdf$mo_sin_old_il_acct, na.rm=TRUE)
+lcdf$mo_sin_old_il_acct[is.na(lcdf$mo_sin_old_il_acct)] = 960
+
+#
+a<- mlv(lcdf$mths_since_recent_bc, method = "meanshift", na.rm=TRUE)
+b<-mean(lcdf$mths_since_recent_bc, na.rm=TRUE)
+max(lcdf$mths_since_recent_bc, na.rm=TRUE)
+lcdf$mths_since_recent_bc[is.na(lcdf$mths_since_recent_bc)] <- mean(lcdf$mths_since_recent_bc, na.rm = TRUE)
+lcdf$num_rev_accts[is.na(lcdf$num_rev_accts)] <- mean(lcdf$num_rev_accts, na.rm = TRUE)
+lcdf$num_tl_120dpd_2m[is.na(lcdf$num_tl_120dpd_2m)] = 0
+lcdf$pct_tl_nvr_dlq[is.na(lcdf$pct_tl_nvr_dlq)] <- mean(lcdf$pct_tl_nvr_dlq, na.rm = TRUE)
+lcdf$percent_bc_gt_75[is.na(lcdf$percent_bc_gt_75)] <- mean(lcdf$percent_bc_gt_75, na.rm = TRUE)
+
+
+#check if all missing values where handle
+names(lcdf)[colSums(is.na(lcdf))>0]
+colMeans(is.na(lcdf))
+
+#####################################################################################################
+##Converting character variables
+
+glimpse(lcdf)
+
+lcdf <- lcdf %>% mutate_if(is.character, as.factor)
+
+#######    sPLIT data into training and Test    #####
+
+TRNPROP = 0.7  #proportion of examples in the training sample
+
+nr<-nrow(lcdf)
+trnIndex<- sample(1:nr, size = round(TRNPROP * nr), replace=FALSE)
+
+lcdfTrn <- lcdf[trnIndex, ]
+lcdfTst <- lcdf[-trnIndex, ]
+
+
+lcdfTrn$loan_status<- as.factor(lcdfTrn$loan_status)
+lcdfTst$loan_status<- as.factor(lcdfTst$loan_status)
+
+varsOmit<- c('actualTerm','actualReturn','annRet','issue_d','loan_amnt','funded_amnt','total_pymnt','last_pymnt_d','last_pymnt_amnt')
+```
+
+#randon Forest and glm:
+
+
+#kodhaye ROC and AUC
+
+ROC curves (using the ROCR package) library('ROCR')
+#obtain the scores from the model for the class of interest, here, the prob('default') scoreTst <- predict(rpDT2, mdTst, type="prob")[ ,'default']
+#now apply the prediction function from ROCR to get a prediction object
+rocPredTst <- prediction(scoreTst, mdTst$OUTCOME, label.ordering = c('non-default', 'default'))
+#obtain performance using the function from ROCR, then plot perfROCTst <- performance(rocPredTst, "tpr", "fpr")
+plot(perfROCTst)
+#for a different model
+scoreTst_dt4 <- predict(rpDT4, mdTst, type="prob")[,'default'] rocPredTst_dt4 <- prediction(scoreTst_dt4, mdTst$OUTCOME,
+label.ordering = c('non-default', 'default')) perfROCTst_dt4 <- performance(rocPredTst_dt4, "tpr", "fpr")
+#adds to previous plot
+plot(perfROCTst_dt4, add=TRUE, col="blue")
+#adds to previous plot #add a legend
+legend('bottomright', c('dt2', 'dt4'), lty=1, col=c('black', 'blue'))
+
+
+#AUC value
+aucPerf=performance(rocPredTst, "auc")
+aucPerf@y.values
+
+#Accuracy
+accPerf <-performance(rocPredTst, "acc") plot(accPerf)
+
+#optimal threshold for max overall accuracy accPerf@x.values[[1]][which.max(accPerf@y.values[[1]])]
+
+
+#optimal cost with different costs for fp and fn
+costPerf = performance(rocPredTst, "cost", cost.fp = 1, cost.fn = 3) costPerf@x.values[[1]][which.min(costPerf@y.values[[1]])]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+#Randon Forest
+library(magrittr)
+library(ranger)
+rgModel1 <- ranger(loan_status ~., data = lcdfTrn %>% select(-varsOmit), num.trees =300, importance='permutation',probability = TRUE)
+rgModel1
+
+```
+
+
+```{r}
+scoreTst<-predict(rgModel1,lcdfTst)
+scoreTst
+#view(scoreTst)
+#scoreTst1 <- scoreTst$predictions[, "Fully Paid"]
+#view(scoreTst1)
+ranger_confusion_matrix = table(lcdfTst$loan_status, as.numeric(scoreTst$predictions[,2]>.9))
+ranger_confusion_matrix
+```
+
+
+```{r}
+sort(importance(rgModel1),decreasing = TRUE)
+
+```
+
+
+```{r}
+#Performance by deciles
+predRet_Trn <- lcdfTrn %>% select(grade, loan_status, actualReturn, actualTerm, int_rate) %>% mutate(predRet=(predict(rgModel1, lcdfTrn))$predictions) 
+predRet_Trn <- predRet_Trn %>% mutate(tile=ntile(-predRet, 10))
+predRet_Trn %>% group_by(tile) %>% summarise(count=n(), avgpredRet=mean(predRet), numDefaults=sum(loan_status=="Charged Off"), avgActRet=mean(actualReturn), minRet=min(actualReturn), maxRet=max(actualReturn), avgTer=mean(actualTerm), totA=sum(grade=="A"), totB=sum(grade=="B" ), totC=sum(grade=="C"), totD=sum(grade=="D"), totE=sum(grade=="E"), totF=sum(grade=="F") )
+```
+
+```{r}
+library("gbm")
+gbm_M2 <- gbm(formula=unclass(loan_status)-1 ~.,
+              data=subset(lcdfTrn, select=-c(actualTerm, actualReturn, issue_d, last_pymnt_d,last_pymnt_amnt, annRet, total_pymnt)),
+              distribution = "bernoulli", n.trees=1000, shrinkage=0.01, interaction.depth = 4, bag.fraction=0.5, cv.folds = 5, n.cores=8)
+```
+
+
+
+
+```{r}
+print(gbm_M2)
+summary(gbm_M2, cbars=TRUE)
+bestIter<-gbm.perf(gbm_M2, method='cv')
+```
+```{r}
+scores_gbmM2<- predict(gbm_M2, newdata=lcdfTst, n.tree= bestIter, type="response")
+scores_gbmM2
+summary(scores_gbmM2)
+str(scores_gbmM2)
+```
+
+```{r}
+#Performance - ROC
+pred_gbmM2=prediction(scores_gbmM2, lcdfTst$loan_status, label.ordering = c("Charged Off", "Fully Paid"))
+#label.ordering here specifies the 'negative', 'positive' class labels
+aucPerf_gbmM2 <-performance(pred_gbmM2, "tpr", "fpr")
+#AUC value
+#aucPerf_gbmM2=performance(pred, "auc")
+#aucPerf_gbmM2@y.values
+plot(aucPerf_gbmM2)
+abline(a=0, b= 1)
+```
+```{r}
+#Parameter tuning for gbm 
+paramGrid <- expand.grid(treeDepth = c(3, 5), shrinkage = c(.001, .01, .1), bestTree = 0,minError = 0)
+
+for(i in 1:nrow(paramGrid)) {
+gbm_paramTune <- gbm(formula= unclass(loan_status)-1 ~.,
+data=subset(lcdfTrn, select=-c(actualTerm, actualReturn, issue_d, last_pymnt_d,last_pymnt_amnt, annRet, total_pymnt,funded_amnt)),
+distribution = "bernoulli", n.trees = 1000, interaction.depth = paramGrid$treeDepth[i], shrinkage = paramGrid$shrinkage[i],
+train.fraction = 0.7,
+n.cores=8 )
+#add best tree and its RMSE to paramGrid
+paramGrid$bestTree[i] <- which.min(gbm_paramTune$valid.error)
+paramGrid$minError[i] <- min(gbm_paramTune$valid.error)}
+#paramGrid
+
+#the best tree is shrinkage=0.01 and n.tree=3
+
+```
+
+
+```{r}
+#Using cross-validation to select best hyper-parameter xgb.cv
+
+```
+
+
+```{r}
+#install.packages("glmnet")
+library('glmnet')
+xD<-lcdfTrn %>% select(-actualTerm, -issue_d, -last_pymnt_d,-last_pymnt_amnt, -annRet, -total_pymnt,-funded_amnt,-loan_status)
+yD<- lcdfTrn$actualReturn
+m1 <- glmnet(data.matrix(xD), yD, family="gaussian")
+m1
+plot(m1,xvar="lambda")
+#see the office hourrrrrrrr
+```
+
+```{r}
+cv_m1<-cv.glmnet(data.matrix(xD), yD, family="gaussian")
+cv_m1$lambda.min
+cv_m1$lambda.1se
+```
+```{r}
+coef(cv_m1, s="lambda.min")
+coef(cv_m1, s="lambda.1se")
+```
+
+```{r}
+##################################     GLM          #########################################
+
+#install.packages("glmnet")
+library(magrittr)
+library(glmnet)
+levels(lcdfTrn$loan_status)
+
+#vars omit 'actualTerm', 'actualReturn', 'issue_d', 'last_pymnt_d','last_pymnt_amnt', 'annRet', 'total_pymnt'
+
+yTrn<-factor(ifelse(lcdfTrn$loan_status=="Fully Paid", '1', '0') )
+xDTrn<-lcdfTrn%>% select
+xDTrn<-lcdfTrn %>% select(-loan_status, -actualTerm, -annRet, -actualReturn, -total_pymnt, -issue_d, -last_pymnt_d, -last_pymnt_amnt, -funded_amnt )
+
+#####################              LASSO                #####################
+glmls_cv<- cv.glmnet(data.matrix(xDTrn), yTrn, family="binomial")
+
+glmls_cv$lambda.min
+glmls_cv$lambda.1se
+#coef(glmls_cv, s = glmls_cv$lambda.min)
+coef(glmls_cv, s = glmls_cv$lambda.1se)
+as.matrix(coef(glmls_cv, s=glmls_cv$lambda.min))
+
+glmls_cv$glmnet.fit
+
+which(glmls_cv$lambda == glmls_cv$lambda.1se)
+glmls_cv$glmnet.fit$dev.ratio[which(glmls_cv$lambda == glmls_cv$lambda.1se) ]
+
+### Plots
+plot(glmls_cv$glmnet.fit)
+plot(glmls_cv$glmnet.fit, xvar="lambda")
+
+## AUC
+glmls_cv_auc<- cv.glmnet(data.matrix(xDTrn), yTrn, family="binomial", type.measure = "auc")
+plot(glmls_cv_auc)
+
+#MSE
+glmls_cv_mse<- cv.glmnet(data.matrix(xDTrn), yTrn, family="binomial", type.measure = "mse")
+plot(glmls_cv_mse)
+
+
+#the labmda values used are in glmls_cv$lambda
+glmls_cv_auc$lambda
+# and the cross-validation 'loss' at each lambda is in glmls_cv$cvm
+glmls_cv_auc$cvm
+
+#So, to get the 'loss' value at lambda == lambda.1se
+glmls_cv_auc$cvm [ which(glmls_cv_auc$lambda == glmls_cv_auc$lambda.1se) ]
+
+#####  PREDICTIONS  ################
+
+glmPredls_1=predict ( glmls_cv,data.matrix(xDTrn), s="lambda.min" ) # gives the ln(p/(1-p)) values
+#i.e. the values of w1*x1 + ...+w2*x2
+glmPredls_p=predict(glmls_cv,data.matrix(xDTrn), s="lambda.min", type="response" ) #gives the prob values
+
+predsauc <- prediction(glmPredls_p, lcdfTrn$loan_status, label.ordering = c("Charged Off", "Fully Paid"))
+aucPerf <- performance(predsauc, "auc")
+aucPerf@y.values
+
+
+#####################           RIDGE               #####################
+
+glmls_cv<- cv.glmnet(data.matrix(xDTrn), yTrn, alpha=0, family="binomial")
+
+glmls_cv$lambda.min
+glmls_cv$lambda.1se
+coef(glmls_cv, s = glmls_cv$lambda.min)
+coef(glmls_cv, s = glmls_cv$lambda.1se)
+as.matrix(coef(glmls_cv, s=glmls_cv$lambda.min))
+
+glmls_cv$glmnet.fit
+
+which(glmls_cv$lambda == glmls_cv$lambda.1se)
+glmls_cv$glmnet.fit$dev.ratio[which(glmls_cv$lambda == glmls_cv$lambda.1se) ]
+
+### Plots
+plot(glmls_cv$glmnet.fit)
+plot(glmls_cv$glmnet.fit, xvar="lambda")
+
+## AUC
+glmls_cv_auc<- cv.glmnet(data.matrix(xDTrn), yTrn, family="binomial", type.measure = "auc")
+plot(glmls_cv_auc)
+
+#the labmda values used are in glmls_cv_auc
+glmls_cv_auc$lambda
+# and the cross-validation 'loss' at each lambda is in glmls_cv$cvm
+glmls_cv_auc$cvm
+
+#MSE
+glmls_cv_mse<- cv.glmnet(data.matrix(xDTrn), yTrn, family="binomial", type.measure = "mse")
+plot(glmls_cv_mse)
+
+#So, to get the 'loss' value at lambda == lambda.1se
+glmls_cv_auc$cvm [ which(glmls_cv_auc$lambda == glmls_cv_auc$lambda.1se) ]
+
+#####  PREDICTIONS  ###########
+
+glmPredls_1=predict ( glmls_cv,data.matrix(xDTrn), s="lambda.min" ) # gives the ln(p/(1-p)) values
+#i.e. the values of w1*x1 + ...+w2*x2
+glmPredls_p=predict(glmls_cv,data.matrix(xDTrn), s="lambda.min", type="response" ) #gives the prob values
+
+predsauc <- prediction(glmPredls_p, lcdfTrn$loan_status, label.ordering = c("Charged Off", "Fully Paid"))
+aucPerf <- performance(predsauc, "auc")
+aucPerf@y.values
+
+
+
+```
+
+
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+

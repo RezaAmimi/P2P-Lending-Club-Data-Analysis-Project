@@ -1,0 +1,212 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+#load the tidyverse set of libraries and Lubridate libary
+library(tidyverse)
+library(lubridate)
+library(utils)
+library(methods)
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(Matrix)
+
+#chunk 2
+
+lcdf <- read_csv('lcData100K.csv')
+
+#chunk 3
+#Examine actual returns from a loan, and relation with int_rate
+#(for example, can one expect a 5%/year return from a loan with 5% int_rate?)
+
+
+#do loans return an amount as may be expected from the int_rate ? 
+######lcdf %>% select(loan_status, int_rate, funded_amnt, total_pymnt) %>% head()
+
+
+#calculate the annualized percentage return
+lcdf$annRet <- ((lcdf$total_pymnt -lcdf$funded_amnt)/lcdf$funded_amnt)*(12/36)*100
+
+#chunk 4
+#Are some loans paid back early, what proportion ?  
+#  - calculate the actual loan term, i.e. the time by which a loan is fully paid back
+#What is the actual return from inventment in a loan?
+
+#Term of the loan is the duration between the last-payment-date and the loan issue-date
+#   First check the format of these two columns with date values
+head(lcdf[, c("last_pymnt_d", "issue_d")])
+
+ #Notice that issue_d is a date variable (of type date), while last_pymnt_d is of type character (like "Dec-2018", having month-year but no date). 
+#So we need to first change the character type to date:
+#     First step is to past "01-" to the character string, to get something like "01-Dec-2018", i.e. first of each month 
+lcdf$last_pymnt_d<-paste(lcdf$last_pymnt_d, "-01", sep = "")
+#     Then convert this character to a date type variable
+lcdf$last_pymnt_d<-parse_date_time(lcdf$last_pymnt_d,  "myd")
+
+#Check their format now
+head(lcdf[, c("last_pymnt_d", "issue_d")])
+
+
+lcdf$actualTerm <- ifelse(lcdf$loan_status=="Fully Paid", as.duration(lcdf$issue_d  %--% lcdf$last_pymnt_d)/dyears(1), 3)
+
+#Then, considering this actual term, the actual annual return is
+lcdf$actualReturn <- ifelse(lcdf$actualTerm>0, ((lcdf$total_pymnt -lcdf$funded_amnt)/lcdf$funded_amnt)*(1/lcdf$actualTerm)*100, 0)
+
+lcdf$earliest_cr_line<-paste(lcdf$earliest_cr_line, "-01", sep = "")
+lcdf$earliest_cr_line<-parse_date_time(lcdf$earliest_cr_line, "myd")
+head(lcdf[c("earliest_cr_line")])
+
+
+#chunk 5
+#Further data exploration -- look into emp_length
+
+
+#convert emp_length to factor -- with factor levels ordered in a meaningful way
+lcdf$emp_length <- factor(lcdf$emp_length, levels=c("n/a", "< 1 year","1 year","2 years", "3 years" ,  "4 years",   "5 years",   "6 years",   "7 years" ,  "8 years", "9 years", "10+ years" ))
+# Note: we could have converted to factor by simply using 
+#    x<-as.factor(lcdf$emp_length), 
+#   but here the factor levels would be randomly arranged
+
+
+
+#chunk 6
+##############Converting character variables
+
+######Take a look at the variables in the data-set -- are there any variable type changes you want to consider?
+#glimpse(lcdf)
+
+######  notice that there are a few character type variables - grade, sub_grade, verification_status,....
+######   We can  convert all of these to factor
+lcdf <- lcdf %>% mutate_if(is.character, as.factor)
+lcdf$loan_status <- factor(lcdf$loan_status, levels=c("Fully Paid", "Charged Off"))
+
+
+ncol(lcdf)
+
+#chunk 8
+#not useful and some part of leakage not all of the leakge
+
+#Drop some other columns which are not useful and those which will cause 'leakage'
+lcdf <- lcdf %>% select(-c(funded_amnt_inv, term, emp_title, pymnt_plan, title, zip_code, addr_state, out_prncp, out_prncp_inv, total_pymnt_inv, total_rec_prncp, total_rec_int,total_rec_late_fee,recoveries, collection_recovery_fee, last_credit_pull_d, policy_code, disbursement_method, debt_settlement_flag, hardship_flag, hardship_dpd, settlement_term, application_type,earliest_cr_line))
+#earliest_cr_line
+
+
+
+ncol(lcdf)
+
+
+#missing
+
+#chunk 10
+
+#calculate the column sums - the number of missing values in each column
+colSums(is.na(lcdf))
+
+#Drop variables with all empty values
+lcdf <- lcdf %>% select_if(function(x){!all(is.na(x))})
+
+#Of the columns remaining, names of columns with missing values
+names(lcdf)[colSums(is.na(lcdf))>0]
+
+
+#summary of data in these columns
+nm<- names(lcdf)[colSums(is.na(lcdf))>0]
+summary(lcdf[, nm])
+ncol(lcdf)
+
+
+
+#chunk 12
+
+#Check missing values
+colMeans(is.na(lcdf))[colMeans(is.na(lcdf))>0]
+
+
+#chunk 13
+
+#Remove variables which have more than 60% missing values
+nm<-names(lcdf)[colMeans(is.na(lcdf))>0.6]
+lcdf <- lcdf %>% select(-nm)
+
+
+ncol(lcdf)
+
+
+#chunk 15
+
+# Check missing values
+colMeans(is.na(lcdf))[colMeans(is.na(lcdf))>0]
+
+#summary of data in these columns
+nm<- names(lcdf)[colSums(is.na(lcdf))>0]
+summary(lcdf[, nm])
+
+
+#chunk 16
+
+
+lcdf<- lcdf %>% replace_na(list(mths_since_last_delinq=31, bc_open_to_buy=median(lcdf$bc_open_to_buy, na.rm=TRUE), mo_sin_old_il_acct=128, mths_since_recent_bc=14, mths_since_recent_inq=5, num_tl_120dpd_2m = median(lcdf$num_tl_120dpd_2m, na.rm=TRUE),percent_bc_gt_75 = median(lcdf$percent_bc_gt_75, na.rm=TRUE),revol_util=median(lcdf$revol_util, na.rm=TRUE) ,avg_cur_bal=median(lcdf$avg_cur_bal, na.rm=TRUE),num_rev_accts=median(lcdf$num_rev_accts, na.rm=TRUE),pct_tl_nvr_dlq=median(lcdf$pct_tl_nvr_dlq, na.rm=TRUE),bc_util=median(lcdf$bc_util, na.rm=TRUE) ))
+
+ncol(lcdf)
+nrow(lcdf)
+
+
+lcdf <- na.omit(lcdf) 
+
+ncol(lcdf)
+nrow(lcdf)
+
+
+nm<- names(lcdf)[colSums(is.na(lcdf))>0]
+summary(lcdf[, nm])
+
+
+colnames(lcdf)
+#chunk17
+#glimpse(lcdf)
+#str(lcdf)
+#summary(lcdf)
+
+
+
+#chunk 18
+#Drop some other columns which are not useful and those which will cause 'leakage'
+
+
+
+#Drop the calculate variables 
+#actualTerm, actualReturn, issue_d, avgActRtrn
+varsOmit<- c('actualTerm','actualReturn','annRet','issue_d','loan_amnt','funded_amnt','total_pymnt','last_pymnt_d','last_pymnt_amnt')
+#Will drop when develop the decision tree
+
+#mashkok: int_rate,
+
+#Question 5: Develop decision tree models to predict default 
+#(a) Split the data into training and validation set   
+
+set.seed(123)
+#training data = 0.7
+trainingP = 0.7
+nr<-nrow(lcdf)
+trainingIndex <- sample(1:nr, size = round(trainingP*nr), replace = FALSE)
+
+lcdfTrainData <- lcdf[trainingIndex,]
+lcdfTestData <- lcdf[-trainingIndex,]
+
+str(lcdf)
+glimpse(lcdf)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
